@@ -12,6 +12,7 @@ import numpy as np
 from habitat.utils.visualizations import maps
 from habitat_sim.nav import NavMeshSettings
 from habitat_sim.utils import common as utils
+from habitat_sim.utils.viz_utils import save_video
 
 dataset_config_path = "/nethome/mkhanna37/flash1/proj-scene-builder/data/scene_datasets/floorplanner/hab-fp-dataset-no-doors/hab-fp.scene_dataset_config.json"
 pointnav_dataset_path = "/nethome/mkhanna37/flash1/proj-scene-builder/data/datasets/pointnav/floorplanner-100k/train/content"
@@ -45,9 +46,6 @@ def get_topdown_map_with_path(sim, start_pos, start_rot, goal_pos):
     maps.draw_agent(
         topdown_map, agent_grid_pos_source, agent_orientation, agent_radius_px=24
     )
-    # maps.draw_agent(
-    #     topdown_map, agent_grid_pos_target, agent_orientation, agent_radius_px=24
-    # )
 
     path = habitat_sim.ShortestPath()
     path.requested_start = start_pos
@@ -56,9 +54,9 @@ def get_topdown_map_with_path(sim, start_pos, start_rot, goal_pos):
     geodesic_distance = path.geodesic_distance
     path_points = path.points
     # @markdown - Success, geodesic path length, and 3D points can be queried.
-    print("found_path : " + str(found_path))
-    print("geodesic_distance : " + str(geodesic_distance))
-    print("path_points : " + str(path_points))
+    # print("found_path : " + str(found_path))
+    # print("geodesic_distance : " + str(geodesic_distance))
+    # print("path_points : " + str(path_points))
 
     trajectory = [
         maps.to_grid(
@@ -69,15 +67,10 @@ def get_topdown_map_with_path(sim, start_pos, start_rot, goal_pos):
         )
         for path_point in path_points
     ]
-    grid_tangent = mn.Vector2(
-        trajectory[1][1] - trajectory[0][1], trajectory[1][0] - trajectory[0][0]
-    )
-    path_initial_tangent = grid_tangent / grid_tangent.length()
-    initial_angle = math.atan2(path_initial_tangent[0], path_initial_tangent[1])
     # draw the agent and trajectory on the map
     maps.draw_path(topdown_map, trajectory)
 
-    return topdown_map, geodesic_distance, len(path_points)
+    return topdown_map, geodesic_distance, path_points
 
 
 def visualize_fp_pointnav_dataset():
@@ -93,6 +86,8 @@ def visualize_fp_pointnav_dataset():
         cfg.defrost()
         cfg.SIMULATOR.SCENE_DATASET = dataset_config_path
         cfg.SIMULATOR.SCENE = scene.split(".")[0]
+
+        cfg.SIMULATOR.AGENT_0.SENSORS = ["RGB_SENSOR", "DEPTH_SENSOR"]
         cfg.freeze()
 
         sim = habitat.sims.make_sim("Sim-v0", config=cfg.SIMULATOR)
@@ -116,10 +111,25 @@ def visualize_fp_pointnav_dataset():
             start_rot = ep["start_rotation"]
             goal_pos = ep["goals"][0]["position"]
 
-            topdown_map, geodesic_distance, path_len = get_topdown_map_with_path(
+            topdown_map, geodesic_distance, path_points = get_topdown_map_with_path(
                 sim, start_pos, start_rot, goal_pos
             )
-            path_lengths.append(path_len)
+
+            imgs = []
+            for point in path_points:
+                sim.set_agent_state(point, start_rot)
+                imgs.append(sim.render())
+
+            save_video(
+                os.path.join(
+                    viz_output_path,
+                    f'path_video_{scene.split(".")[0]}_{ep["episode_id"]}.mp4',
+                ),
+                imgs,
+                fps=5,
+            )
+
+            path_lengths.append(len(path_points))
             geodesic_distances.append(geodesic_distance)
 
             cv2.imwrite(
