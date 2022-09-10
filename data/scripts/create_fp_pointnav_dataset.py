@@ -24,10 +24,18 @@ scenes_path = "/nethome/mkhanna37/flash1/proj-scene-builder/data/scene_datasets/
 splits_info_path = "data/scene_datasets/floorplanner/scene_splits.yaml"
 dataset_config_path = "data/scene_datasets/floorplanner/hab-fp-dataset-no-doors/hab-fp.scene_dataset_config.json"
 
-output_dataset_path = "data/datasets/pointnav/floorplanner-100k"
+output_dataset_path = "data/datasets/pointnav/floorplanner-1000k"
 
 
 def _generate_fn(scene, split):
+    scene_key = scene.split(".glb")[0]
+    out_file = os.path.join(
+        output_dataset_path, split, "content", f"{scene_key}.json.gz"
+    )
+
+    if os.path.exists(out_file):
+        return
+
     cfg = habitat.get_config()
     cfg.defrost()
     cfg.SIMULATOR.SCENE = scene.split(".")[0]
@@ -43,8 +51,6 @@ def _generate_fn(scene, split):
         navmesh_save_path = os.path.join(glbs_path, scene.split(".")[0] + ".navmesh")
         sim.pathfinder.save_nav_mesh(navmesh_save_path)
         print('Saved NavMesh to "' + navmesh_save_path + '"')
-    else:
-        print("NAVMESH NOT LOADED")
 
     dset = habitat.datasets.make_dataset("PointNav-v1")
     dset.episodes = list(
@@ -57,11 +63,6 @@ def _generate_fn(scene, split):
         # ep.scene_id = ep.scene_id[len("./data/scene_datasets/") :]
         ep.scene_id = scene
 
-    scene_key = scene.split(".glb")[0]
-
-    out_file = os.path.join(
-        output_dataset_path, split, "content", f"{scene_key}.json.gz"
-    )
     os.makedirs(osp.dirname(out_file), exist_ok=True)
     # global episodes
     # episodes += dset.episodes
@@ -78,15 +79,10 @@ def generate_fp_pointnav_dataset():
     os.makedirs(output_dataset_path, exist_ok=True)
 
     for split in scene_splits.keys():
-        # if split != 'train':
-        #     continue
-        # global episodes
-        # episodes = []
+
         scenes = scene_splits[split]
 
-        # for scene in scenes:
-        #     _generate_fn(scene, split)
-        with multiprocessing.Pool(8) as pool, tqdm.tqdm(total=len(scenes)) as pbar:
+        with multiprocessing.Pool(4) as pool, tqdm.tqdm(total=len(scenes)) as pbar:
             # for _ in pool.imap_unordered(_generate_fn, scenes):
             for _ in pool.starmap(_generate_fn, zip(scenes, repeat(split))):
                 pbar.update()
@@ -94,11 +90,8 @@ def generate_fp_pointnav_dataset():
         path = os.path.join(output_dataset_path, split, split + ".json.gz")
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        # split_dataset = habitat.datasets.make_dataset("PointNav-v1")
-        # split_dataset.episodes = episodes
         with gzip.open(path, "wt") as f:
             json.dump(dict(episodes=[]), f)
-            # f.write(split_dataset.to_json())
 
 
 if __name__ == "__main__":
